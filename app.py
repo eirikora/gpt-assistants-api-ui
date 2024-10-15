@@ -2,8 +2,10 @@ import os
 import base64
 import re
 import json
-
+import csv
+import pathlib
 import streamlit as st
+import streamlit.components.v1 as components 
 import openai
 from openai import AssistantEventHandler
 from tools import TOOL_MAP
@@ -14,7 +16,7 @@ import streamlit_authenticator as stauth
 load_dotenv()
 
 assistant_icon = "🤖" 
-user_icon = "😍"      # st.image('A2logo_neg_small.png')
+user_icon = "🧑‍🔬"      # st.image('A2logo_neg_small.png')
 st.logo('a2bred_trans.png', link = None, icon_image = None)
 st.sidebar.markdown("*Sandkasse for utprøving av KI.*")
 
@@ -22,6 +24,14 @@ st.sidebar.markdown("*Sandkasse for utprøving av KI.*")
 useAzure = False
 # Define the very first hidden message to the bot
 initial_hidden_message = "Hei!"
+
+# The following code parts are just to ensure that cursor focus stays in input field.
+# Initialize the counter in session state
+if 'counter' not in st.session_state:
+    st.session_state.counter = 0
+
+# Increment the counter each time the page is reloaded
+st.session_state.counter += 1
 
 def str_to_bool(str_input):
     if not isinstance(str_input, str):
@@ -35,7 +45,7 @@ if openai_api_key:
     print ("Using OPENAI Key:" + openai_api_key[:7] + "..." + openai_api_key[-5:])
 instructions = os.environ.get("RUN_INSTRUCTIONS", "")
 enabled_file_upload_message = os.environ.get(
-    "ENABLED_FILE_UPLOAD_MESSAGE", "Upload a file"
+    "ENABLED_FILE_UPLOAD_MESSAGE", "Last opp et vedlegg her"
 )
 azure_openai_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
 azure_openai_key = os.environ.get("AZURE_OPENAI_KEY")
@@ -192,6 +202,7 @@ def create_file_link(file_name, file_id):
 
 
 def format_annotation(text):
+    citation_map = {}
     citations = []
     text_value = text.value
     for index, annotation in enumerate(text.annotations):
@@ -199,6 +210,10 @@ def format_annotation(text):
 
         if file_citation := getattr(annotation, "file_citation", None):
             cited_file = client.files.retrieve(file_citation.file_id)
+            if cited_file.filename in citation_map.keys():
+                citation_map[cited_file.filename] += f",[{index}]"
+            else:
+                citation_map[cited_file.filename] = f"[{index}]"
             if hasattr(file_citation, 'quote'):
                 citations.append(
                     f"[{index}] {file_citation.quote} from {cited_file.filename}"
@@ -209,7 +224,19 @@ def format_annotation(text):
                 file_path.file_id,
             )
             text_value = re.sub(r"\[(.*?)\]\s*\(\s*(.*?)\s*\)", link_tag, text_value)
-    text_value += "\n\n" + "\n".join(citations)
+    for filename in citation_map.keys():
+        pretty_filename = filename
+        if "_" in filename:
+            pretty_filename = filename.split("_", 1)[1]  # Split on the first underscore and take the second part (Removes internal serial number)
+        if filename == map_file_to_source(filename):
+            citations.append(
+                f"{citation_map[filename]}: {pretty_filename}"
+            )
+        else:
+            citations.append(
+                    f"{citation_map[filename]}: [{pretty_filename}]({map_file_to_source(filename)})"
+            )
+    text_value += "\n\n" + "<br>".join(citations)
     return text_value
 
 
@@ -269,6 +296,24 @@ def reset_chat():
     st.session_state.in_progress = False
     st.session_state.just_started = True
 
+@st.cache_data
+def map_file_to_source(thefile):
+    mapfilename = st.session_state.mapfile_name
+    #print("Checking "+mapfilename)
+    if pathlib.Path(mapfilename).exists():
+        #print("Reading the sourcemap file " + mapfilename)
+        with open(mapfilename, 'r', newline='', encoding='utf-8') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                if '\\' in row['Filename']:
+                    thisfilename = row['Filename'].split('\\')[-1] #os.path.basename(row['Filename'])
+                else:
+                    thisfilename = row['Filename']
+                if thisfilename == thefile:
+                    return row['URL']
+    else:
+        print(f"Unable to load {mapfilename}!")
+    return thefile #Not found
 
 def load_chat_screen(assistant_id, assistant_title):
     if enabled_file_upload_message:
@@ -291,9 +336,15 @@ def load_chat_screen(assistant_id, assistant_title):
     else:
         uploaded_file = None
 
+    # Add welcome-image on left hand side
+    imagefile = "image_" + assistant_id + ".jpg"
+    if not pathlib.Path(imagefile).exists():
+        imagefile = "image_default.jpg"
+    st.sidebar.image(imagefile, caption="Velkommen!")
+
     st.title(assistant_title if assistant_title else "")
     user_msg = st.chat_input(
-        "Message", on_submit=disable_form, disabled=st.session_state.in_progress
+        "Din melding her...", on_submit=disable_form, disabled=st.session_state.in_progress
     )
     if st.session_state.just_started and not user_msg:
         user_msg = initial_hidden_message
@@ -315,20 +366,46 @@ def load_chat_screen(assistant_id, assistant_title):
 
     render_chat()
 
+    # Reset focus on input field
+    components.html(
+        f"""
+            <div>some hidden container</div>
+            <p>{st.session_state.counter}</p>
+            <script>
+                var textarea = window.parent.document.querySelector('textarea[data-testid="stChatInputTextArea"]');
+                if (textarea) {{
+                    textarea.focus();
+                }}
+            </script>
+        """,
+        height=0,
+    )
+
 def authenticate_password(some_password):
     if some_password != os.environ.get("USER_PASSWORD", None):
         return False
     return True
 
-some_password = st.text_input("Enter secret password:", type="password")
+some_password = st.text_input("Logg inn med hemmelig passord her:", type="password")
 
 if not authenticate_password(some_password):
-    st.error("Invalid Password. Access denied.")
+    st.error("Ugyldig/feil passord. Ingen aksess.")
     st.stop()
 else:
-    st.image("POT_A-2.jpg", caption="Velkommen!")
+    st.success("Du er logget inn! Vennligst velg ønsket assistent i venstre meny!", icon=":material/thumb_up:")
 
 def main():
+    # Retrieve the assistant ID from the URL parameter if provided
+    # You can read query params using key notation
+    assistant_id_from_url = None
+    try:
+        assistant_id_from_url = st.query_params["assistant"]
+        print(f"Assistant {assistant_id_from_url} indicated in URL.")
+    except Exception as e:
+        print("Assistant was not defined in URL.")
+    # query_params = st_script_run_context.get_script_run_ctx().query_params
+    # assistant_id_from_url = query_params.get("assistant", [None])[0]  # Using [0] to get the first element
+
     # Check if multi-agent settings are defined
     multi_agents = os.environ.get("OPENAI_ASSISTANTS", None)
     single_agent_id = os.environ.get("ASSISTANT_ID", None)
@@ -346,26 +423,42 @@ def main():
         else:
             authenticator.logout(location="sidebar")
 
-    if multi_agents:
+    # Determine if an assistant ID is pre-selected by URL parameter
+    if assistant_id_from_url:
+        if multi_agents:
+            assistants_json = json.loads(multi_agents)
+            assistants_object = {f'{obj["title"]}': obj for obj in assistants_json}
+            for title, assistant in assistants_object.items():
+                if assistant["id"] == assistant_id_from_url:
+                    # selected_assistant = assistant_id_from_url
+                    single_agent_id = assistant_id_from_url
+                    single_agent_title = title
+                    print(f"Går for URL-valgt agent {single_agent_title}({single_agent_id})!")
+                    break
+
+    if single_agent_id:
+        st.session_state['mapfile_name'] = single_agent_id + "_sourcemap.csv"
+        st.cache_data.clear()
+        load_chat_screen(single_agent_id, single_agent_title)
+    elif multi_agents:
         assistants_json = json.loads(multi_agents)
         assistants_object = {f'{obj["title"]}': obj for obj in assistants_json}
         selected_assistant = st.sidebar.selectbox(
-            "Select an assistant profile?",
+            "Velg din KI-assistent:",
             list(assistants_object.keys()),
             index=None,
-            placeholder="Select an assistant profile...",
+            placeholder="Velg en assistent her...",
             on_change=reset_chat,  # Call the reset function on change
         )
         if selected_assistant:
+            st.session_state['mapfile_name'] = assistants_object[selected_assistant]["id"] + "_sourcemap.csv"
+            st.cache_data.clear()
             load_chat_screen(
                 assistants_object[selected_assistant]["id"],
                 assistants_object[selected_assistant]["title"],
             )
-    elif single_agent_id:
-        load_chat_screen(single_agent_id, single_agent_title)
     else:
         st.error("No assistant configurations defined in environment variables.")
-
 
 if __name__ == "__main__":
     main()
