@@ -388,11 +388,6 @@ def authenticate_password(some_password):
 
 some_password = st.text_input("Logg inn med hemmelig passord her:", type="password")
 
-if not authenticate_password(some_password):
-    st.error("Ugyldig/feil passord. Ingen aksess.")
-    st.stop()
-else:
-    st.success("Du er logget inn! Vennligst velg ønsket assistent i venstre meny!", icon=":material/thumb_up:")
 
 def main():
     # Retrieve the assistant ID from the URL parameter if provided
@@ -435,6 +430,15 @@ def main():
                     single_agent_title = title
                     print(f"Går for URL-valgt agent {single_agent_title}({single_agent_id})!")
                     break
+
+    if not authenticate_password(some_password):
+        st.error("Ugyldig/feil passord. Ingen aksess.")
+        st.stop()
+    else:
+        if single_agent_id:
+            st.success("Du er logget inn!", icon=":material/thumb_up:")
+        else:
+            st.success("Du er logget inn! Vennligst velg ønsket assistent i venstre meny!", icon=":material/thumb_up:")
 
     if single_agent_id:
         st.session_state['mapfile_name'] = single_agent_id + "_sourcemap.csv"
