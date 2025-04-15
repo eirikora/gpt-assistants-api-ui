@@ -226,7 +226,7 @@ def format_annotation(text):
             text_value = re.sub(r"\[(.*?)\]\s*\(\s*(.*?)\s*\)", link_tag, text_value)
     for filename in citation_map.keys():
         pretty_filename = filename
-        if "_" in filename:
+        if "_" in filename and not filename.startswith('CV'):
             pretty_filename = filename.split("_", 1)[1]  # Split on the first underscore and take the second part (Removes internal serial number)
         if filename == map_file_to_source(filename):
             citations.append(
