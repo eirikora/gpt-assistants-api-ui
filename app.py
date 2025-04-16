@@ -4,6 +4,7 @@ import json
 import csv
 import pathlib
 from pathlib import Path
+import tempfile
 import fitz  # PyMuPDF for pdf conversion
 from docx import Document # for Microsoft word file conversion
 import mammoth 
