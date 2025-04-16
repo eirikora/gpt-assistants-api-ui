@@ -1,9 +1,15 @@
 import os
 import base64
-import re
 import json
 import csv
 import pathlib
+from pathlib import Path
+import fitz  # PyMuPDF for pdf conversion
+from docx import Document # for Microsoft word file conversion
+import mammoth 
+from bs4 import BeautifulSoup
+import re
+
 import streamlit as st
 import streamlit.components.v1 as components 
 import openai
@@ -177,6 +183,51 @@ class EventHandler(AssistantEventHandler):
             ) as stream:
                 stream.until_done()
 
+def pdf_to_text(pdf_path):
+    text = ""
+    with fitz.open(pdf_path) as doc:
+        for page in doc:
+            text += page.get_text()
+    return text
+
+def extract_docx_header_footer(docx_path):
+    # Load the document using python-docx
+    doc = Document(docx_path)
+
+    # Extract header text
+    header_text = []
+    for section in doc.sections:
+        for header in section.header.paragraphs:
+            header_text.append(header.text)
+
+    # Extract footer text
+    footer_text = []
+    for section in doc.sections:
+        for footer in section.footer.paragraphs:
+            footer_text.append(footer.text)
+    
+    result = "\n".join(header_text + footer_text)
+    result = re.sub('\n+','\n', result)
+    return result
+
+def docx_to_text(docx_path):
+    # Read and convert temp Word file into HTML for analysis
+    with open(docx_path, "rb") as docx_file:
+        try:
+            result = mammoth.convert_to_html(docx_file)
+            html = result.value
+        except Exception as e:
+            html = f"<p>docx_to_text ERROR: Document was not a Microsoft Word document in .docx format (Zip file) that could be analyzed. Exception {e}</p>\n"
+
+    # Get the header and footer from the file
+    headerfooter = extract_docx_header_footer(docx_path)
+    # Create a BeautifulSoup object and extract all the text
+    soup = BeautifulSoup(html, 'html.parser')
+    plain_text = soup.get_text(separator='\n')
+    #plain_text = "HEADER_FOOTER: " + headerfooter + '\nFRONT_PAGE:\n' + plain_text
+    plain_text = headerfooter + '\n' + plain_text
+    plain_text = re.sub('\t',' ',plain_text)
+    return plain_text
 
 def create_thread(content, file):
     return client.beta.threads.create()
@@ -251,9 +302,25 @@ def run_stream(user_input, file, selected_assistant_id):
     ) as stream:
         stream.until_done()
 
-
 def handle_uploaded_file(uploaded_file):
-    file = client.files.create(file=uploaded_file, purpose="assistants")
+    # Convert non-.txt file to .txt first
+    suffix = Path(uploaded_file.name).suffix.lower()
+    converted_navn = "Vedlegg_" + uploaded_file.name + ".txt"
+
+    if suffix == ".pdf":
+        converted_text = pdf_to_text(uploaded_file.name)
+        #with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        #    tmp.write(uploaded_file.getvalue())
+        #    converted_text = pdf_to_text(tmp.name)
+    elif suffix == ".docx":
+        #with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+        #    tmp.write(uploaded_file.getvalue())
+        #    converted_text = docx_to_text(tmp.name)
+        converted_text = docx_to_text(uploaded_file.name)
+    elif suffix == ".txt":
+        converted_text = uploaded_file.getvalue().decode('utf-8')
+
+    file = client.files.create(file=(converted_navn, converted_text), purpose="assistants")
     return file
 
 
@@ -322,14 +389,7 @@ def load_chat_screen(assistant_id, assistant_title):
             type=[
                 "txt",
                 "pdf",
-                "png",
-                "jpg",
-                "jpeg",
-                "csv",
-                "json",
-                "geojson",
-                "xlsx",
-                "xls",
+                "docx"
             ],
             disabled=st.session_state.in_progress,
         )
