@@ -308,15 +308,19 @@ def handle_uploaded_file(uploaded_file):
     converted_navn = "Vedlegg_" + uploaded_file.name + ".txt"
 
     if suffix == ".pdf":
-        converted_text = pdf_to_text(uploaded_file.name)
-        #with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-        #    tmp.write(uploaded_file.getvalue())
-        #    converted_text = pdf_to_text(tmp.name)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(uploaded_file.getvalue())
+            tmp.flush()
+            converted_text = pdf_to_text(tmp.name)
+        os.unlink(tmp.name)  # sletter midlertidig fil etter bruk
+
     elif suffix == ".docx":
-        #with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
-        #    tmp.write(uploaded_file.getvalue())
-        #    converted_text = docx_to_text(tmp.name)
-        converted_text = docx_to_text(uploaded_file.name)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
+            tmp.write(uploaded_file.getvalue())
+            tmp.flush()
+            converted_text = docx_to_text(tmp.name)
+        os.unlink(tmp.name)  # sletter midlertidig fil etter bruk
+
     elif suffix == ".txt":
         converted_text = uploaded_file.getvalue().decode('utf-8')
 
